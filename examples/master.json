@@ -1,0 +1,33 @@
+{
+  "id": "master",
+  "host": "127.0.0.1",
+  "port": 7310,
+  "agent": "pi-mock",
+  "peers": [
+    {
+      "id": "servant-a",
+      "host": "127.0.0.1",
+      "port": 7311
+    },
+    {
+      "id": "servant-b",
+      "host": "127.0.0.1",
+      "port": 7312
+    }
+  ],
+  "security": {
+    "cert": "./identities/master.pem",
+    "key": "./identities/master.key",
+    "ca": "./identities/ca.pem",
+    "trustedPeers": {
+      "servant-b": "REPLACE_WITH_VERIFIED_64_HEX_CERTIFICATE_SHA256",
+      "servant-a": "REPLACE_WITH_VERIFIED_64_HEX_CERTIFICATE_SHA256"
+    },
+    "allowExternal": false
+  },
+  "policy": {
+    "maxConcurrent": 4,
+    "maxTaskRecords": 4096,
+    "grants": {}
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "id": "servant-b",
+  "host": "127.0.0.1",
+  "port": 7312,
+  "agent": null,
+  "peers": [],
+  "security": {
+    "cert": "./identities/servant-b.pem",
+    "key": "./identities/servant-b.key",
+    "ca": "./identities/ca.pem",
+    "trustedPeers": {
+      "servant-a": "REPLACE_WITH_VERIFIED_64_HEX_CERTIFICATE_SHA256",
+      "master": "REPLACE_WITH_VERIFIED_64_HEX_CERTIFICATE_SHA256"
+    },
+    "allowExternal": false
+  },
+  "policy": {
+    "maxConcurrent": 4,
+    "maxTaskRecords": 4096,
+    "grants": {
+      "master": {
+        "tools": [
+          "echo",
+          "wait",
+          "readFile"
+        ],
+        "workspace": "./workspace",
+        "maxTimeoutMs": 2000,
+        "maxConcurrent": 1
+      },
+      "servant-a": {
+        "tools": [
+          "echo",
+          "readFile"
+        ],
+        "workspace": "./workspace",
+        "maxTimeoutMs": 2000,
+        "maxConcurrent": 1
+      }
+    }
+  }
+}

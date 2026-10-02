@@ -1,0 +1,31 @@
+node_modules/
+*.log
+coverage/
+artifacts/
+
+.unified-node-state/
+*.key
+*.key.pem
+
+# Local state, identities, sessions and dependency/build caches
+.intelligent-cells-state/
+identities/
+state/
+operator-access/
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+.npm/
+.DS_Store
+
+# Local release and validation output
+verification/
+release/
+releases/
+*.zip
+*.tar.gz
+*.tgz
+*.bundle
