@@ -1,0 +1,2 @@
+Hello from the servant-owned approved workspace.
+This file is read remotely by a bounded built-in tool.
