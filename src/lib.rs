@@ -1,0 +1,28 @@
+pub mod context;
+pub mod durable;
+pub mod error;
+pub mod files;
+pub mod harness;
+pub mod jobs;
+pub mod logging;
+pub mod mcp_registry;
+pub mod model;
+pub mod node;
+pub mod node_store;
+pub mod operator;
+pub mod owner;
+pub mod pairing;
+pub mod policy;
+pub mod resources;
+pub mod rsync;
+pub mod sessions;
+pub mod settings;
+pub mod sync;
+pub mod tls;
+pub mod tools;
+pub mod transport;
+pub mod wire;
+pub mod workspaces;
+
+pub use error::{IcError, Result};
+pub use model::{Config, Grant};

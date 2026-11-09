@@ -1,78 +1,87 @@
-# Pi SDK 与确定性 mock 模型
+# CLI and harness integration
 
-Intelligent Cells 使用固定版本 `@earendil-works/pi-coding-agent@0.99.2`。Pi AgentSession、HTTP/SSE provider、工具解析、mTLS 传输、文件变更、构建和测试都真实执行；只有模型响应是确定性测试脚本。它不理解任意自然语言任务，也不验证真实 LLM 的规划能力。
-
-## 运行
+IC runs as a resident service. A harness attaches a stdio MCP session through `ic mcp connect`; disconnecting that client does not shut down the node. Start the harness directly. The removed `call` and `launch` commands have no aliases.
 
 ```sh
-npm ci --ignore-scripts
-npm run test:pi
-npm run demo:pi
-npm run demo:dev
+ic config init
+ic config check
+ic serve
 ```
 
-依赖 Node.js 22.19+、npm 和 OpenSSL 3.x。演示创建临时 loopback listener、一次性证书和合成工作区，结束时清理。无需真实模型 API key 或付费模型请求。
+Run management commands in another terminal:
 
-`demo:pi` 验证 read → write → edit → exec → readback，随后验证路径越界拒绝；`demo:dev` 验证临时 Git 仓库中的实际测试失败、修复、build/test、diff 和 MCP 校验。预期 `masterLocalExecutions` 为 0。完整工作流与限制见 [资源、MCP 与开发演示](pi-resources.md)。
+```sh
+ic nodes list
+ic nodes status
+ic pair list
+ic mcp list
+ic mcp give --harness claude-code --target /absolute/claude-mcp.json --cwd /absolute/project
+ic mcp give --harness codex --target /absolute/codex-config.toml --cwd /absolute/project
+```
 
-## 执行链路与范围
+`give` writes the selected harness MCP configuration. The target parent directory must already exist. It preserves the native JSON/TOML format and records the current absolute `IC_HOME` for the harness environment. Restart the harness after registration. It accepts optional `--session ID` to reconnect to a persisted session. Pi does not provide the supported native MCP configuration interface and is not accepted by `give`; the command reports this explicitly.
 
-1. master 创建内存 Pi AgentSession，调用 `session.prompt()`
-2. 本机 `intelligent-cells-local-mock/intelligent-cells-mock` 返回指定 scenario 的工具调用
-3. Pi 校验并执行 `remote_*` 工具，经 `IntelligentCell.dispatch()` 发送
-4. servant 通过自己的身份、工具、工作区、目录与配额授权后执行，结果经 mTLS 返回 Pi
+```sh
+ic mcp connect --cwd /absolute/project
+ic mcp connect --session SESSION_UUID
+```
 
-Pi 仅注册 20 个远程执行工具；`workspaceList` 和 `workspaceCreate` 由本地主人/SYSTEM 管理，不向模型开放。每次会话绑定一个逻辑或显式远程工作区，模型不能切换执行位置，失败不回退默认工作区或 master 本机。
+`connect` and `give` accept `--local-sync`, which requires an explicit `--cwd`. This mode exposes `ic_workspace` and `ic_sync` and synchronizes approved remote execution using the bound project; native harness file tools stay local. A resumed session must retain its original mode.
 
-`remote_*` 名称和允许列表由 `integration/pi/remote-tools.mjs` 定义。原生本机 read/bash/write/edit/ls/grep/find/powershell 不在可调用 registry 中。每次会话都验证可用工具集合。
+Supply cwd explicitly for a directory binding. Without it, targets use permitted session-specific temporary directories. The bridge does not assume its own process cwd is the agent's project. Built-in IC tools execute on remote nodes only. Aggregated MCP tools carry a separate origin and obey local/master visibility settings.
 
-已有完整身份/授权配置的 master 可设 `"agent": "pi-mock"`，通过本机 stdin JSONL 调用：
+## Agent tool names and default peer
+
+Agent-facing IC tools use the `ic_*` namespace, including `ic_peers`, `ic_peer`, `ic_exec`, `ic_workspace` and `ic_sync`. Internal wire tool names such as `readFile` and `exec` are unchanged.
+
+Call `ic_peers` to inspect available peers, then select an already-paired servant for the session:
 
 ```json
-{"requestId":"example","command":"agent","prompt":"Run the approved fixture workflow","scenario":"workflow"}
+{"name":"ic_peer","arguments":{"peerId":"SERVANT_UUID"}}
 ```
 
-此片段不替代 TLS 配置和 servant grant。scenario 决定固定测试流程，prompt 不会改变它为通用智能编程代理。
+The selected default persists with the session and is restored on resume. Subsequent remote tool calls may omit `peerId`. Supplying `peerId` on an individual call overrides the destination for that call only; it does not change the session default. A remote call without either an explicit peer or a selected default returns `PEER_REQUIRED`.
 
-## 隔离、重试与取消
+`ic_peer` selects an existing relationship. Agent tools cannot create a pairing, approve a request, grant permissions or bypass the selected servant's policy. Use the owner CLI for those actions. Underlying wire primitives remain internal; they are not public aliases for removed agent tools.
 
-- 默认不发现用户/项目配置、skills、AGENTS.md 或 JavaScript extensions；仅加载两端显式批准的远程资源及仓库内已批准 adapter
-- 不读取 `~/.pi/auth.json`、环境 API key 或 models.json；凭据接口为空，mock token 为非秘密测试值
-- settings/session 使用内存；不启用 compaction、重试、cache warming、analytics 或安装遥测
-- 同一 Pi toolCallId 的重复调用复用任务 ID 和结果；不同参数发生冲突。未知副作用由持久任务门禁阻止重放
-- AbortSignal 请求取消同一远程任务；取消不能撤销已经提交的文件或外部副作用
-- 每个 run 在 finally 中清理 listener、socket 和订阅，一次 master 仅允许一个 Pi run
-- 资源文本和 MCP tool 描述不能增加权限；受信任 exec/MCP 进程仍有宿主权限，不构成 OS 沙箱
+## Simplified agent catalog
 
-## 安全依赖修复：保留真实 Pi，固定兼容传递依赖
+The ordinary built-in catalog has 15 tools; local-sync has 11. Aggregated provider tools are additional entries. Local-sync exposes `ic_workspace` to select the same synchronization scope previously handled by `ic_sync_scope`; it does not create a workspace or change directory bindings. `ic_workspace` is available only in local-sync sessions.
 
-Pi 0.99.2 的公开 npm tarball 自带 `npm-shrinkwrap.json`，将依赖链固定为：
+Use `ic_process` for background process control:
 
-`@earendil-works/pi-coding-agent@0.99.2 → minimatch@10.2.6 → brace-expansion@5.0.9`
-
-5.0.9 命中三个 DoS advisory，其中两个 high。官方补丁版 5.0.12 满足 minimatch 声明的 `^5.0.8`。npm 11.9 的 override 和 `npm audit fix` 没有修正这个嵌套 shrinkwrap。
-
-本项目提交明确的 root-lock 修复：
-
-1. Pi 自身 npm tarball URL、版本、SHA512 不变，未改上游源码或重打包
-2. root `package-lock.json` 中将对应 brace-expansion 条目固定到官方 5.0.12 URL 和 npm registry 提供的 SHA512
-3. 仅删除该 root lock 中 Pi 条目的 `hasShrinkwrap: true` 标记，让 `npm ci` 使用本项目已完整锁定的依赖树，避免再次导入上游旧 resolution
-
-如维护者用 `npm install` 更新 lock 后再次引入旧 shrinkwrap，可显式运行：
-
-```sh
-npm run harden:pi-lock
-npm ci --ignore-scripts
-npm test
-npm audit --omit=dev
+```json
+{"name":"ic_process","arguments":{"action":"status","jobId":"JOB_ID"}}
 ```
 
-`harden:pi-lock` 是本项目可审查的维护脚本，不是自动安装 hook；上游版本不符时拒绝修改。它只修改 root lock，硬编码并检查已审阅的版本/官方 integrity。测试同时检查锁文件与**实际安装**的 brace-expansion 版本，防止仅在 lock 中“看起来已修补”。
+`action` is `status`, `output` or `cancel`; `jobId` is required. `peerId` and `timeoutMs` are optional. Only `output` accepts `offset`, `limit` and `stream`. Destination selection follows the same persistent `ic_peer` default and per-call override rules.
 
-运行 `npm audit --omit=dev` 检查当前已知 advisory；审计结果随时间变化，不代表无漏洞。更换 npm/Pi 版本后必须重做 clean-install、全量测试和 audit。
+The agent catalog no longer exposes chunk-transfer tools, resource tools or the four separate job-control tools. `ic_exec` no longer accepts stdin input, and `ic_process` does not provide stdin. There are no public compatibility aliases. Internal file, resource and job primitives remain available to the runtime; removing agent wrappers does not remove those primitives or relax permissions. Authentication, grant checks and persistent execution history remain in effect.
 
-## 未验证范围
+## Commands
 
-真实模型/provider、付费请求、多主机组网、VPN/NAT、Windows/macOS、生产身份运维和恶意代码强隔离尚未验证。mock HTTP listener 仅用于同一可信主机的 loopback；跨节点任务使用 mTLS。
+```text
+ic config [show|init|use|set|check] [--config FILE]
+ic config set --key dotted.path --value JSON
+ic nodes [list|status]
+ic nodes status --peer UUID
+ic nodes rename --peer UUID --name NAME
+ic nodes bind --peer UUID --local PATH --workspace ID
+ic nodes unbind --peer UUID --local PATH
+ic nodes command --json JSON
+ic pair [list|status]
+ic pair request --master JSON
+ic pair approve --request ID --fingerprint SHA256
+ic pair reject --request ID
+ic pair confirm --request ID --master JSON [--grant JSON]
+ic mcp list
+ic mcp add --name NAME --definition JSON
+ic mcp remove --id UUID
+ic mcp update --id UUID --patch JSON
+ic mcp builtin --tool NAME --patch JSON
+ic mcp give --harness claude-code|codex --target FILE [--cwd PATH] [--session ID] [--local-sync]
+ic mcp connect [--cwd PATH] [--session ID] [--local-sync]
+ic mock-model --kind pi|claude|codex --script FILE [--port N]
+```
 
-实现以已固定 SDK 的导出和源码为准；上游在线文档可能变化。参考 [Pi 官方仓库](https://github.com/earendil-works/pi) 和 [0.99.2 npm 发布包](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/0.99.2)。
+Only `config` accepts `--config`. `config use --config FILE` selects a settings file. Other commands use that selection. `nodes command` is an authenticated local management interface, not an agent tool or remote authorization bypass. Use each command's `--help` for the exact accepted arguments.

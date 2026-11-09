@@ -1,49 +1,56 @@
-# 测试与验证范围
+# Testing and acceptance
 
-## 环境与命令
-
-要求 Node.js 22.19+、npm、OpenSSL CLI 3.x，以及允许 loopback TCP 的 Linux 环境。测试创建一次性证书、临时工作区和本机独立进程，不需要真实模型 API key。依赖通过已提交的 lockfile 固定。
+Write or update meaningful tests before implementation. Create or select a visible Herdr build pane, verify its current pane ID, and run builds and tests there; do not reuse a stale hardcoded pane ID or create hidden parallel build terminals. Use `umask 077` and a fresh canonical private `TMPDIR` so workspace locks from earlier runs do not contaminate results.
 
 ```sh
-npm ci --ignore-scripts
-npm test
-npm run demo
-npm run demo:pi
-npm run demo:dev
-npm audit --omit=dev
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets -- --test-threads=1
+cargo build --release --bin ic --bin ic-rsync-stdio
 ```
 
-单独运行 Pi 回归可用 `npm run test:pi`。测试进程按文件顺序执行；不要把多个测试运行器指向同一固定网络端口并行运行。
+Unit tests live in `src/`; integration tests live in `tests/`. `ic-mcp-fixture` is a deterministic protocol fixture, not a production provider. Real harness acceptance must run the installed harness against a loopback model mock; tests that return early because an environment variable is absent are skipped coverage, not successful harness runs.
 
-若环境不允许 Unix domain socket，预先排除该项：
+## Current agent-tool simplification
+
+Final local fmt, clippy, release build and full regression passed (`SIMPLIFY_FINAL_RC=0`): 246 reported passes, 0 failures and 11 ignored. Three external harness tests returned early without their required environment, so 243 tests exercised their scenarios. Linux targeted regression passed 35 tests (14 harness/protocol, 2 process, 2 peer, 1 sync and 16 session tests), and its release build passed (`TKY_SIMPLIFY_RC=0`). These runs do not add actual external-harness coverage.
+
+Both isolated services were updated and restarted. The local live MCP catalog contains exactly 15 ordinary or 11 local-sync tools. Tailnet selection and bridge resume passed, including remote execution and old-alias rejection. The captured success label incorrectly says `restart_retains`; that check resumed the MCP bridge without restarting the resident service between selection and resume. An intermediate rerun failed during SSH setup before an IC call because the connection reset. The final rerun with the corrected label then passed selection and bridge resume. The retained network interruption does not establish a product test failure. See the [simplification report](../verification/tool-simplification/REPORT.md) for evidence and limits.
+
+## Previous tool namespace and peer-selection checks
+
+The `ic_*` namespace and persistent `ic_peer` session default passed final local fmt, clippy, release build and full regression (`PEER_FINAL_RC=0`). The test log reports 242 passes, 0 failures and 11 ignored. Three external harness tests returned early because their environment was absent, so 239 tests exercised their scenarios. Coverage includes the namespace without old aliases, default selection, per-call overrides, switching, restart persistence, unpair rejection, directory bindings and synchronization. Existing production capabilities were not removed.
+
+The local resident service was restarted with the latest release. A real stdio `tools/list` returned 22 `ic_*` tools, including `ic_peer`. New tky verification and deployment were not completed: SSH timed out, including an escalated retry. A partial source transfer was attempted; no new remote build or service restart was performed. Earlier v0.6 remote results do not validate this feature. See the [peer-selection report](../verification/ic-peer/REPORT.md).
+
+## Previous v0.6 acceptance
+
+New remote verification targets `tky`, not `cal`. Required coverage includes breaking CLI rejection, selected configuration discovery, separated private stores, UUID/name identity, automatic certificate provisioning, dynamic pairing, node status, MCP aggregation and visibility, resident sessions, cwd bindings, temporary-directory opt-out, persisted execution history, and configurable web entry serving.
+
+Final local fmt, clippy, release build and full Rust regression passed (`LOCAL_FINAL_RC=0`). The suite reports 239 passes, but 3 external harness tests returned early because their environment was absent: 236 tests exercised their scenarios. Eleven optional rsync tests remain ignored in this local run. The separate UI suite passed 5 tests.
+
+The earlier Linux/tky full suite reported 235 passes, 0 failures and 11 ignored. Subsequent Linux checks passed: 16 final session tests, 1 managed aggregation test and all 11 optional rsync tests. The final Linux release build passed. These overlapping runs are not additive unique-test counts; the Linux full-suite run preceded the final reconciliation changes, which received targeted regression coverage.
+
+Real local/tky tailnet acceptance passed for pairing, temporary and bound workspaces, resident MCP sessions, aggregation and visibility. Both services were restarted with the same identity/configuration; persistence, execution and aggregation were then verified again (`TAILNET_RESTART_RC=0`). Final local and remote source hashes match. No cal testing was performed.
+
+The deployment is isolated test state: the local service runs in a foreground Herdr pane, and tky runs a detached `nohup` service. Neither is installed as a boot service. See the [v0.6 verification report](../verification/v06/REPORT.md) for logs, recovered failures and explicit coverage limits.
+
+## Historical evidence
+
+Prior v0.5 evidence remains under `verification/`: `colored-logs/`, `readable-logs/`, `dynamic-pairing/`, and the Rust, connection and rsync logs. These records describe earlier binaries and configuration formats. Historical `cal`, `shn` and `tky` checks do not validate the v0.6 redesign.
+
+## Optional rsync verification
+
+Use an explicitly approved absolute `IC_TEST_RSYNC` executable, version 3.4.1 or newer. Tests compute its pin; PATH discovery is not owner approval. Run the ignored rsync suite only when that dependency is available.
+
+Linux Cargo output may hardlink companion executables. Copy the test binary and `ic-rsync-stdio` as ordinary independent files into a fresh private directory before running the ignored suite. Do not weaken the production single-link check or use `ln`.
 
 ```sh
-node --test --test-concurrency=1 --test-skip-pattern='owner-only Unix IPC' test/*.test.mjs
+cargo build --bin ic-rsync-stdio
+cargo test --no-run --test rsync_backend
+IC_TEST_RSYNC=/absolute/approved/rsync /absolute/private-test-dir/rsync_backend --include-ignored
 ```
 
-该命令不运行 owner-only Unix IPC 测试。Node 可能不将被过滤的用例计入 skip；`0 skip` 不代表此项通过。不能用更宽泛的权限绕过环境拒绝。
+## Limits of evidence
 
-## 回归范围
-
-- mTLS、CA/CN/指纹固定、逐 peer 授权、帧与请求限额、去重、取消和断连
-- 持久账本、未知效果门禁、重启恢复、容量边界与历史淘汰
-- 文件工具路径/链接保护、目录 ACL、读写交集、撤权与权限 epoch
-- 命名工作区、批准根自动创建、稳定请求 ID、并发/重启复用、绑定与跨工作区作业隔离
-- 固定执行入口、作业输出/取消/stdin、MCP schema/能力限制与未知副作用恢复
-- 真实 Pi SDK、固定 mock provider、远程-only 工具集、资源加载和真实开发演示
-- 控制台 owner HTTP、认证/同源/CSRF、静态元素、模型及确定性 DOM 控制器测试
-- 产品名称、包/锁文件一致、旧构造器别名与状态路径兼容
-
-## 必须独立验证的范围
-
-以下不由上述自动回归证明，不能宣称生产就绪：
-
-- Unix owner IPC 的 owner/non-owner 账户访问
-- 真实浏览器渲染、焦点、键盘/鼠标、历史导航与可访问性
-- VPS/LAN/公网、多设备网络、Windows/macOS、OS 服务注册与主机重启
-- 生产身份签发/轮换、真实模型/provider、费用和持续会话
-- 恶意代码的 OS 隔离、任意进程树强制终止、磁盘加密和跨外部系统 exactly-once
-
-目录 ACL 仅限制内建文件/资源 API，已批准 exec/MCP 进程拥有宿主账户权限。真实部署前应按 [操作台指南](operations.md) 在目标机器逐项验收。
-
-历史报告和机器生成的测试日志不随源码发布。测试结果应关联实际验证的提交和环境；依赖审计只是运行时点的已知 advisory，不是安全证明。
+A passing test is scoped to the exercised scenario. Single latency samples are not throughput benchmarks. Browser visual acceptance, fault injection, certificate lifecycle and production isolation require explicit evidence; do not infer them from compilation or unit tests.
