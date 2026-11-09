@@ -1,0 +1,46 @@
+[package]
+name = "intelligent-cells"
+version = "0.6.0"
+edition = "2024"
+license-file = "LICENSE"
+description = "Permission-controlled Rust cells with pinned mTLS, durable tasks and standard remote tools"
+
+[lib]
+name = "intelligent_cells"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ic"
+path = "src/main.rs"
+
+[[bin]]
+name = "ic-rsync-stdio"
+path = "src/rsync_stdio.rs"
+
+[dependencies]
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+libc = "0.2"
+openssl = { version = "0.10", features = ["vendored"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+toml_edit = "0.23"
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[[bin]]
+name = "ic-mcp-fixture"
+path = "tests/fixtures/mcp-server.rs"
+
+[[bin]]
+name = "ic-native-fixture"
+path = "tests/fixtures/native-exec.rs"
+
+[profile.release]
+lto = "thin"
+strip = true
